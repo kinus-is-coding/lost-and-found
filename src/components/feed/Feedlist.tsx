@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'; // 2. Import hooks
 import Feedlistitem from './Feedlistitem';
-
+import Link from 'next/link';
 interface Post {
     id: number;
     author_username: string;
@@ -13,8 +13,10 @@ interface Post {
     created_at: string;
 }
 
-
-const Feedlist = () => {
+interface FeedlistProps {
+    isLoggedIn: boolean;
+}
+const Feedlist: React.FC<FeedlistProps> = ({ isLoggedIn }) => {
     // 4. Use state to manage posts, loading status, and errors
     const [posts, setPosts] = useState<Post[]>([]);
     const [loading, setLoading] = useState(true);
@@ -29,7 +31,6 @@ const Feedlist = () => {
         // Note: For client-side fetch, you generally need to ensure the base URL is public.
         const baseUrl = 'http://localhost:3000';
         
-        // Construct the full URL to call the Next.js API proxy: http://localhost:3000/api/posts/
         const fullUrl = `${baseUrl}${API_URL}`; 
 
         try {
@@ -69,9 +70,10 @@ const Feedlist = () => {
     return (
         <>
             {posts.map((post) => (
-                <Feedlistitem
-                    key={post.id}
-                    post={post} // Pass the individual post data
+                    <Feedlistitem
+                        key={post.id}
+                        post={post}
+                        isLoggedIn={isLoggedIn} 
                 />
             ))}
         </>

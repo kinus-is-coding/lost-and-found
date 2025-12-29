@@ -1,32 +1,22 @@
 import React, { PropsWithChildren } from "react";
 import SearchFilter from "./header/SearchFilter";
-import Modals from "./modal/Modals";  
-import useLoginModal from "@/hooks/useLoginModal";
 import LoginModal from "./modal/LoginModal";
 import SignupModal from "./modal/SignupModal";
-import useSignupModal from "@/hooks/useSignupModal";
 import AuthButtons from "./header/AuthButton";
-const  content=(
-    <p className="text-black">Helloword</p>
-  )
-
+import SearchFilterWrapper from "./header/SearchFilterWrapper";
 export default function Layout({ children }: PropsWithChildren) {
   
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-50">
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
         <div className="px-4 py-4 flex items-center justify-between">
-          <h1 className="text-lg wfont-semibold tracking-tight">
-            Lost Item Identifier
-          </h1>
-          <SearchFilter/>
+                <h1 className="text-lg wfont-semibold tracking-tight">
+                  Lost Item Identifier
+                </h1>
+                <SearchFilterWrapper />
 
-          <div className="flex items-center space-x-4">
-                    
-                   
+                <div className="flex items-center space-x-4">
                     <AuthButtons/>
-
-                    
                 </div>
         </div>
       </header>

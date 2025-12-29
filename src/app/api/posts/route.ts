@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
 
 // The full URL that contacts your Django DRF server
-const DJANGO_POSTS_URL = `${DJANGO_API_BASE_URL}/posts/`;
+const DJANGO_POSTS_URL = `${DJANGO_API_BASE_URL}/posts/all/`;
 
 export async function GET(request: NextRequest) {
     if (!DJANGO_API_BASE_URL) {

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse,NextRequest } from "next/server";
 import { randomUUID } from "crypto";
 import { saveQuiz, type Feature, type QuizQuestion } from "../../../lib/sessionStore";
 import { QUIZ_GENERATION_PROMPT } from "../../../lib/aiPrompts";
@@ -79,7 +79,16 @@ async function generateQuizWithAI(features: Feature[], objectType?: string) {
 
   return parsed.questions;
 }
-export async function POST(request: Request) {
+
+
+
+
+export async function POST(request: NextRequest) {
+  
+  // 🆕 1. Lấy Locker ID từ Query Parameter
+  const lockerId = request.nextUrl.searchParams.get('locker')
+  
+  
   const body = (await request.json().catch(() => null)) as
     | CreateQuizBody
     | null;
@@ -91,7 +100,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const quizId = randomUUID();
 
   const useMock =
     process.env.USE_MOCK_AI === "true" || !process.env.OPENAI_API_KEY;
@@ -100,12 +108,58 @@ export async function POST(request: Request) {
     ? buildMockQuestions(body.features)
     : await generateQuizWithAI(body.features, body.objectType);
 
-  saveQuiz({
-    quizId,
-    objectType: body.objectType,
-    features: body.features,
-    questions,
-  });
+  const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
+  const DJANGO_POST_CREATE_URL = `${DJANGO_API_BASE_URL}/posts/`; 
 
-  return NextResponse.json({ quizId, questions });
+  const DRF_DATA = {
+      // Map features to your DRF Post fields
+      title: body.features.find(f => f.startsWith('Item:'))?.split(': ')[1] || 'Lost Item',
+      location: body.features.find(f => f.startsWith('Location:'))?.split(': ')[1] || 'Unknown Location',
+      image_url: '', 
+      questions: questions, 
+      
+      locker_id: lockerId, 
+  };
+
+  try {
+      const djangoRes = await fetch(DJANGO_POST_CREATE_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(DRF_DATA),
+      });
+
+      const responseData = await djangoRes.json().catch(() => ({}));
+
+      if (!djangoRes.ok) {
+
+          // 1. Nếu Backend trả về lỗi do trùng Locker (Status 400)
+          if (djangoRes.status === 400) {
+              // Lấy message lỗi từ Django (cái "error" mình set trong Response ở views.py)
+              const errorMessage = responseData.error || "Locker is currently occupied.";
+              
+              return NextResponse.json({ 
+                  error: "Locker Occupied",
+                  message: errorMessage 
+              }, { status: 400 }); 
+          }
+          
+          // 2. Các lỗi Django khác
+          return NextResponse.json({ 
+              error: "Django Error", 
+              message: "Không thể tạo bài đăng trên hệ thống." 
+          }, { status: djangoRes.status });
+      }
+
+      return NextResponse.json({ 
+        quizId: responseData.id, 
+        message: "Tạo bài đăng thành công!"
+      });
+
+  } catch (error) {
+    console.error("API Proxy Error:", error);
+    return NextResponse.json(
+        { error: "Internal server error", message: "Lỗi kết nối proxy." },
+        { status: 500 },
+    );
+  }
 }
