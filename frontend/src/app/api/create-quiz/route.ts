@@ -1,5 +1,5 @@
 import { NextResponse,NextRequest } from "next/server";
-import { saveQuiz, type Feature, type QuizQuestion } from "../../../lib/sessionStore";
+import { type Feature, type QuizQuestion } from "../../../lib/sessionStore";
 import { QUIZ_GENERATION_PROMPT } from "../../../lib/aiPrompts";
 
 import OpenAI from "openai";
@@ -7,7 +7,6 @@ import OpenAI from "openai";
 interface CreateQuizBody {
   features: Feature[];
   objectType?: string;
-  source: "image" | "manual";
 }
 
 function buildMockQuestions(features: Feature[]): QuizQuestion[] {
@@ -49,42 +48,68 @@ function buildMockQuestions(features: Feature[]): QuizQuestion[] {
 // Placeholder for an AI-powered quiz generator.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1", 
 });
 
-async function generateQuizWithAI(features: Feature[], objectType?: string) {
-  if (!process.env.OPENAI_API_KEY) {
+async function generateQuizWithAI(features: Feature[]) {
+  if (!process.env.GROQ_API_KEY) {
     throw new Error("OPENAI_API_KEY is not set");
   }
+  const userContent = `
+    DANH SÁCH ĐẶC ĐIỂM CẦN DÙNG:
+    ${features.map((f, i) => `- ${f}`).join("\n")}`;
 
-  const payload = { features, objectType };
-
-  const response = await openai.responses.create({
-    model: "gpt-4.1-mini",
-    input: [
+  // 1. Sửa openai.responses.create thành openai.chat.completions.create
+  const response = await openai.chat.completions.create({
+    model: "llama-3.3-70b-versatile",
+    messages: [
       {
         role: "system",
         content: QUIZ_GENERATION_PROMPT,
       },
       {
         role: "user",
-        content: JSON.stringify(payload),
+        content: userContent,
       },
     ],
+    response_format: { type: "json_object" } // Ép AI trả về JSON chuẩn
   });
 
-  const text = response.output[0].content[0].text;
-  const parsed = JSON.parse(text) as { questions: QuizQuestion[] };
+  const text = response.choices[0].message.content;
 
+  if (!text) {
+    throw new Error("AI trả về nội dung trống");
+  }
+
+  const parsed = JSON.parse(text) as { questions: QuizQuestion[] };
   return parsed.questions;
 }
 
 
 
+function validateQuiz(questions: QuizQuestion[]) {
+  if (!Array.isArray(questions) || questions.length < 3) {
+    throw new Error("Quiz must have at least 3 questions");
+  }
+
+  questions.forEach((q, i) => {
+    if (!q.id || !q.text) {
+      throw new Error(`Question ${i} missing id or text`);
+    }
+
+    if (!Array.isArray(q.choices) || q.choices.length < 2) {
+      throw new Error(`Question ${q.id} must have at least 2 choices`);
+    }
+
+    if (!q.choices.some(c => c.id === q.correctChoiceId)) {
+      throw new Error(`Question ${q.id} has invalid correctChoiceId`);
+    }
+  });
+}
 
 export async function POST(request: NextRequest) {
   
-  // 🆕 1. Lấy Locker ID từ Query Parameter
   const lockerId = request.nextUrl.searchParams.get('locker')
   
   
@@ -98,14 +123,25 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+  const strictlyFeatures = body.features
+    .filter(f => f.startsWith('Description:'))
+    .map(f => f.replace('Description: ', '')); 
+  
 
+  const useMock =process.env.USE_MOCK_AI === "true" || !process.env.GROQ_API_KEY;
 
-  const useMock =
-    process.env.USE_MOCK_AI === "true" || !process.env.OPENAI_API_KEY;
+  let questions: QuizQuestion[];
 
-  const questions = useMock
-    ? buildMockQuestions(body.features)
-    : await generateQuizWithAI(body.features, body.objectType);
+  try {
+    questions = useMock
+      ? buildMockQuestions(strictlyFeatures)
+      : await generateQuizWithAI(strictlyFeatures);
+
+    validateQuiz(questions); 
+  } catch (err) {
+    console.error("Quiz generation failed → fallback mock", err);
+    questions = buildMockQuestions(strictlyFeatures);
+  }
 
   const DJANGO_API_BASE_URL = process.env.DJANGO_API_BASE_URL;
   const DJANGO_POST_CREATE_URL = `${DJANGO_API_BASE_URL}/posts/`; 
@@ -116,7 +152,7 @@ export async function POST(request: NextRequest) {
       location: body.features.find(f => f.startsWith('Location:'))?.split(': ')[1] || 'Unknown Location',
       image_url: '', 
       questions: questions, 
-      locker_id: lockerId, 
+      locker: lockerId, 
   };
 
   try {

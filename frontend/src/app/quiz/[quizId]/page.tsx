@@ -2,34 +2,30 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-// Kiểm tra đường dẫn này xem có đúng chỗ file Quiz.tsx của bro không
 import Quiz, { type QuizQuestion, type QuizResult } from "@/components/Quiz"; 
 import Modals from "@/components/modal/Modals";
+
 export default function QuizPage() {
   const params = useParams();
   const router = useRouter();
-  
   const postId = params?.quizId; 
 
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [lockerId, setLockerId] = useState<string>("");
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
-
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCorrect, setIsCorrect] = useState(false);
   const [modalData, setModalData] = useState({ title: "", message: "", type: "success" });
 
   useEffect(() => {
     if (!postId) return;
-
     async function fetchQuiz() {
       try {
-        console.log(postId);
         const res = await fetch(`/api/posts/${postId}`);
         if (!res.ok) throw new Error("Không tìm thấy bài đăng");
-        
         const data = await res.json();  
 
         const mappedQuestions: QuizQuestion[] = data.quiz_questions.map((q: any, index: number) => ({
-          // Nếu q.id không có thì dùng index làm ID tạm
           id: q.id ? q.id.toString() : index.toString(), 
           text: q.question_text,
           choices: q.choices_json,
@@ -37,113 +33,158 @@ export default function QuizPage() {
         }));
 
         setQuizQuestions(mappedQuestions);
+        if (typeof data.locker === 'object' && data.locker !== null) {
+          setLockerId(String(data.locker.locker || "N/A"));
+        } else {
+          setLockerId(String(data.locker || "N/A"));
+        }
         setStatus("loaded");
       } catch (err) {
         console.error(err);
         setStatus("error");
       }
     }
-
     fetchQuiz();
   }, [postId]);
 
   const handleResult = async ({ score, total }: QuizResult) => {
     if (score === total) {
-      // 1. Set nội dung Modal thành công
+      setIsCorrect(true);
       setModalData({
         title: "Xác minh thành công! ✔",
-        message: "Chính xác 100%! Tủ đồ đang được mở, món đồ đã được gỡ khỏi danh sách.",
+        message: "Chính xác 100%! Bạn đã xác minh đúng chủ sở hữu",
         type: "success"
       });
 
-      // 2. GỬI LỆNH XUỐNG BACKEND ĐỂ SET IS_ACTIVE = FALSE
-      try {
-        // Lưu ý: Thêm dấu / ở cuối complete/ cho đúng chuẩn Django
-        const res = await fetch(`/api/posts/${postId}/complete/`, { 
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
-
-        if (res.ok) {
-          console.log("Đã Deactive bài đăng thành công!");
-        } else {
-          console.error("Lỗi từ server khi deactive");
-        }
-      } catch (err) {
-        console.error("Lỗi kết nối API:", err);
-      }
-
+     
     } else {
-      // 3. Trường hợp trả lời sai
+      setIsCorrect(false);
       setModalData({
-        title: "Tiếc quá! ❌",
-        message: `Bạn chỉ trả lời đúng ${score}/${total} câu. Vui lòng kiểm tra lại thông tin nhé!`,
+        title: "Xác minh thất bại ❌",
+        message: `Bạn trả lời đúng ${score}/${total}. Thông tin chưa khớp, vui lòng thử lại sau.`,
         type: "error"
       });
     }
-
-    // Cuối cùng mới mở Modal lên
     setIsModalOpen(true);
   };
+  const handleFinalUnlock = async () => {
+  try {
+ 
+    const res = await fetch(`/api/posts/${postId}/complete/`, { 
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' }
+    });
 
-  // --- PHẦN HIỂN THỊ (GIAO DIỆN) ---
+    if (res.ok) {
+      alert("Tủ đồ đang mở! Hãy lấy đồ và đóng cửa tủ lại.");
+      setIsModalOpen(false);
+      router.push('/');
+    } else {
+      alert("Có lỗi xảy ra khi kết nối với tủ đồ.");
+    }
+  } catch (err) {
+    console.error("Lỗi xác nhận:", err);
+  }
+};
 
-  if (status === "loading") return <div className="p-10 text-white">Đang tải câu hỏi...</div>;
+  if (status === "loading") {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-400 gap-4">
+        <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="font-medium">Đang tải câu hỏi xác minh...</p>
+      </div>
+    );
+  }
 
-  if (status === "error") return (
-    <div className="p-10 text-white">
-      <p>Lỗi rồi! Không tìm thấy Quiz cho món đồ này.</p>
-      <button onClick={() => router.push("/")} className="mt-4 bg-sky-500 p-2 rounded">Quay lại</button>
-    </div>
-  );
+  if (status === "error") {
+    return (
+      <div className="max-w-md mx-auto mt-20 p-8 border border-red-900/50 bg-red-900/10 rounded-2xl text-center">
+        <p className="text-red-400 font-bold text-lg">Lỗi rồi! Không tìm thấy Quiz.</p>
+        <button onClick={() => router.push("/")} className="mt-6 bg-slate-800 hover:bg-slate-700 text-white px-6 py-2 rounded-full transition-all">
+          Quay lại trang chủ
+        </button>
+      </div>
+    );
+  }
 
-  
+  return (
+    <div className="max-w-2xl mx-auto p-4 md:p-6 space-y-8">
+      <header className="text-center md:text-left space-y-2">
+        <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
+          Xác minh <span className="text-indigo-400">chủ sở hữu</span>
+        </h1>
+        <p className="text-slate-400 text-sm md:text-base">
+          Vui lòng trả lời đúng tất cả câu hỏi để xác nhận đây là món đồ của bạn.
+        </p>
+      </header>
 
- return (
-  <div className="max-w-2xl mx-auto p-6 space-y-6">
-    <header>
-      <h1 className="text-2xl font-bold text-white">Xác minh chủ sở hữu</h1>
-      <p className="text-slate-400 text-sm">Trả lời đúng các câu hỏi sau để mở tủ.</p>
-    </header>
+      <Quiz questions={quizQuestions} onResult={handleResult} />
 
-    <Quiz questions={quizQuestions} onResult={handleResult} />
+      <Modals
+  isOpen={isModalOpen}
+  label={modalData.title}
+  close={() => {
+    setIsModalOpen(false);
+    router.push('/');
 
-    {/* Dùng cái Modal "nhà làm" của bro ở đây */}
-    <Modals
-      isOpen={isModalOpen}
-      label={modalData.title}
-      close={() => {
-          setIsModalOpen(false);
-          router.push('/');
-      }}
-      content={(
-        <div className="flex flex-col items-center text-center space-y-4 py-2">
-           <div className={`text-5xl ${modalData.type === 'success' ? 'text-green-500' : 'text-red-500'}`}>
-              {modalData.type === 'success' ? "🔓" : "🔒"}
-           </div>
-           
-           <p className="text-slate-800 text-lg font-medium">
-             {modalData.message}
-           </p>
+  }}
+  content={(
+    <div className="flex flex-col items-center text-center space-y-6 py-2">
+      {/* Icon trạng thái */}
+      
+      
+      <div className="space-y-1">
+        
+        <p className="text-slate-400 text-sm px-4">
+          {modalData.message}
+        </p>
+      </div>
+      <div className="text-6xl">
+        {modalData.type === 'success' ? "🚀" : "🔒"}
+      </div>
 
-           <div className="flex w-full gap-3 mt-4">
-              <button 
-                onClick={() => {
-                  setIsModalOpen(false);
-                  router.push('/');
-                }}
-                className={`flex-1 py-3 rounded-xl font-bold text-white ${
-                  modalData.type === 'success' ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-slate-500 hover:bg-slate-600'
-                }`}
-              >
-              {modalData.type = "Về Trang Chủ"}
-              </button>
-           </div>
+      {/* CHỈ HIỆN LOCKER ID KHI ĐÚNG */}
+      {isCorrect && (
+        <div className="group relative">
+          <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-cyan-500 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
+          <div className="relative flex flex-col items-center bg-slate-900 border border-slate-800 px-10 py-6 rounded-2xl">
+            <span className="text-[10px] text-slate-500 uppercase tracking-[0.3em] mb-1">Mã số ngăn tủ</span>
+            <span className="text-5xl font-black text-white tracking-tighter shadow-indigo-500">
+              {lockerId}
+            </span>
+          </div>
         </div>
       )}
-    />
-  </div>
-);
+
+      <div className="flex flex-col w-full gap-3 px-2 pt-4">
+        {isCorrect ? (
+          <>
+            <button 
+              onClick={handleFinalUnlock}
+              className="w-full py-4 rounded-2xl font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_15px_rgba(79,70,229,0.3)] transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+              MỞ TỦ NGAY
+
+            </button>
+            <button 
+              onClick={() => { setIsModalOpen(false); router.push('/'); }}
+              className="py-2 text-slate-500 text-xs hover:text-slate-300 transition-colors uppercase tracking-widest"
+            >
+              Về trang chủ
+            </button>
+          </>
+        ) : (
+          <button 
+            onClick={() => { setIsModalOpen(false); router.push('/'); }}
+            className="w-full py-4 rounded-2xl font-bold text-white bg-slate-800 hover:bg-slate-700 transition-all"
+          >
+            QUAY LẠI
+          </button>
+        )}
+      </div>
+    </div>
+  )}
+/>
+    </div>
+  );
 }
